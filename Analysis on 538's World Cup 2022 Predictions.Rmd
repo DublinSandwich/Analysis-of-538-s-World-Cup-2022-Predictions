@@ -1,0 +1,457 @@
+---
+title: "Analysis on 538's World Cup 2022 Predictions"
+author: "Fiachra Nolan, 19323391"
+date: "2023-01-04"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r directory, include=FALSE}
+setwd("C:/Users/fiach/OneDrive/Desktop/R-Stuff/R Projects/538's WCup Predictions")
+```
+
+```{r packages, include = FALSE}
+library(readr)
+library(ggplot2)
+library(ggthemes)
+library(dplyr)
+```
+
+# 538's World Cup Predictions
+
+aka Are American Statisticians more successful than American soccer players?
+
+538 is an American website that focuses on opinion poll analysis, politics, economics, and sports blogging. Its founder, Nate Silver, rose to prominence through his application of sabermetrics (empirical analysis of baseball) to build political prediction models. Although the site rose to prominence through its political predictions (the titular '538' refers to the number of electors in the US Electoral College) it is perhaps equally famous for its sports prediction models, and in early November 2022 538 released their prediction model for the 2022 Qatar World Cup.
+
+For this project we'll be using 538's World Cup forecasts which they've handily made available on their website. You can find it [here](https://data.538.com/ "Our Data|538"). The aim of this analysis is to compare 538's predictions made in early November to the actual results of the World Cup as they played out, specifically in the group stages as this encompasses the most games.
+
+## The Data
+
+I downloaded the dataset under examination off of 538's GitHub page. 538 continuously updated the prediction model as each game played out and as teams are knocked out. Our aim is to compare the predictions made before the tournament started against how the games actually played out. So our very first step with this data, will be to create two datasets: "forecasts" will be the 538 predictions made before the opening ceremony started and "results" will detail how the games actually played out.
+
+```{r downloading the data}
+url <- "https://projects.fivethirtyeight.com/soccer-api/international/2022/wc_forecasts.csv"
+
+data <- read.csv(url)
+```
+
+```{r two datasets}
+#forecasts is a dataset made up of 
+#all the predictions that 538 
+#entered into the model pre-tournament on the 16th November
+forecasts <- subset(data,data$forecast_timestamp == "2022-11-16 16:00:55 UTC")
+
+#results are the standings and progress 
+#of all teams after all games and out-rounds 
+#have been played
+results <- data[1:32,]
+```
+
+The datasets we're working with contain 32 observations (each correspond to a country that qualified for the World Cup) and 22 variables. Two of these variables serve as time stamps, so that 538 can lodge when they've made new predictions. These time stamps aren't of much use to us so we'll be removing these two variables.
+
+```{r removing timestamps}
+forecasts$forecast_timestamp <- NULL
+forecasts$timestamp <- NULL
+
+results$forecast_timestamp <- NULL
+results$timestamp <- NULL
+```
+
+We're then going to organise our datasets alphabetically by team-name.
+
+```{r alphabetical order}
+forecasts <- forecasts[order(forecasts$team),]
+results <- results[order(results$team),]
+```
+
+Our datasets' rows aren't properly numbered so before moving on we'll correct that
+
+```{r ordering rows}
+rownames(forecasts) <- NULL
+rownames(results) <- NULL
+```
+
+The variables that 538 have provided in their dataset are as follows:\
+
+*Team* - name of the country team,\
+
+*Group* - the group a team is playing their group-stages games in,\
+
+*SPI* (Soccer Power Index) - 538's 1-100 rating estimate as to how strong a given team is,\
+
+*global_o* (Offensive Rating) - represents the number of goals a team would be expected to score against an average team on a neutral field,\
+*global_d* (Defensive Rating) - represents the number of goals a team would be expected to concede against an average team on a neutral field,\
+
+*sim_wins* - predicted number of wins for a given team in the group stages,\
+*sim_draws* - predicted number of draws for a given team in the group stages,\
+*sim_losses* - predicted number of draws for a given team in the group stages,\
+
+*sim_goal_diff* - predicted goal difference for a given team at the end of the group stages,\
+*goals_scored* - predicted amount of goals scored in the group stages,\
+*goals_against* - predicted amount of goals conceded in the group stages,\
+
+*group_X* - the probability that a team will place X in their group stage, where X is 1st,2nd,3rd, or 4th,\
+
+```{r group_pos}
+#We're going to introduce a new group_pos
+#variable into our results dataset
+#which indicates what position a team finished
+#in their group
+results$group_pos <- NA
+
+for (i in which(results$group_1 == 1)){
+  results$group_pos[i] <- "First"
+}
+
+for (i in which(results$group_2 == 1)){
+  results$group_pos[i] <- "Second"
+}
+
+for (i in which(results$group_3 == 1)){
+  results$group_pos[i] <- "Third"
+}
+
+for (i in which(results$group_4 == 1)){
+  results$group_pos[i] <- "Fourth"
+}
+```
+
+*make_round_of_16* - the probability that a team will progress to the round of 16,\
+*make_quarters* - the probability that a team will progress to the quarter finals,\
+*make_semis* - the probability that a team will progress to the semi finals,\
+*make_final* - the probability that a team will make it to the final,\
+
+*win_league* - the probability that a team will win the FIFA World Cup 2022
+
+For the purposes of analysis we'll be introducing one more variable into the dataset, that being the home *continent* of the team.
+
+```{r home continent}
+europe <- c("Spain","France","Portugal","Germany","England","Netherlands",
+            "Denmark","Belgium","Croatia","Switzerland","Serbia","Poland",
+            "Wales")
+samerica <- c("Brazil","Argentina","Uruguay","Ecuador")
+americas <- c("USA","Mexico","Costa Rica","Canada")
+asia <- c("Japan","South Korea","Iran","Saudi Arabia","Qatar")
+africa <- c("Senegal","Morocco","Tunisia","Cameroon","Ghana")
+oceania <- c("Australia")
+
+forecasts$continent <- NA
+results$continent <- NA
+
+for (i in which(forecasts$team %in% europe))
+{
+forecasts$continent[i] = "European"
+results$continent[i] = "European"
+}
+
+for (i in which(forecasts$team %in% samerica))
+{
+forecasts$continent[i] = "South American"
+results$continent[i] = "South American"
+}
+
+for (i in which(forecasts$team %in% americas))
+{
+forecasts$continent[i] = "American"
+results$continent[i] = "American"
+}
+
+for (i in which(forecasts$team %in% asia))
+{
+forecasts$continent[i] = "Asian"
+results$continent[i] = "Asian"
+}
+
+for (i in which(forecasts$team %in% africa))
+{
+forecasts$continent[i] = "African"
+results$continent[i] = "African"
+}
+
+for (i in which(forecasts$team %in% oceania))
+{
+forecasts$continent[i] = "Oceania"
+results$continent[i] = "Oceania"
+}
+```
+
+Now that we have all our variables laid out, we can start analysing the data.
+
+## The Analysis
+
+The main three variables I want to dig into with this analysis are: *spi*, *global_o*, and *global_d*. That's because these three variables make up the backbone of 538's prediction model and are used to calculate, for example, the probability that a team will progress to the out-rounds or the probability that a team will win the semi-finals, etc.
+
+As initial analysis, I want to ask the question...\
+**Are 538's Global Offensive and Global Defensive accurate predictions of teams' goal-scoring and goal-keeping metric?**
+
+### Offensive Power
+
+To answer this question we can plot the *goals_scored* variable from our results dataset on against *global_o* variable from our forecasts dataset to give us an indication as to the effectiveness of Global Offensive as a prediction metric. For bonus points we can then plot *goals_scored* from the results dataset against *goals_scored* from the forecasts dataset to try and assess whether simulated goals scored was a more effective metric than *global_o*
+
+It is important to mention that we won't be running linear regressions on these variables so the plots can't serve as a statistically sound assessment without further analysis.
+
+```{r Global Offensive Histogram}
+df1 <- data.frame(goals_scored=results$goals_scored,
+                  global_o=forecasts$global_o,
+                  Continent=results$continent,
+                  team=results$team)
+
+ggplot(data = df1, aes(x = team, 
+                       y = global_o,
+                       fill=team)) +
+  geom_col() +
+  labs(y="Global Offensive Ranking",x="Teams") +
+  scale_x_discrete(breaks = forecasts$team[c(1,seq(from=0,to=32,by=8))])
+```
+
+```{r goals scored histogram}
+ggplot(data = df1, aes(x = team, 
+                       y = goals_scored,
+                       fill=team)) +
+  geom_col() +
+  labs(y="Goals Scored",x="Teams") +
+  scale_x_discrete(breaks = forecasts$team[c(1,seq(from=0,to=32,by=8))])
+```
+
+```{r global offensive comparison}
+ggplot(df1,aes(global_o,goals_scored,colour=Continent)) + 
+  geom_point() + 
+  geom_smooth(method='lm',colour="black") + 
+  labs(y="Goals Scored",x="Global Offensive Ranking")+
+  theme_calc()
+```
+
+At a glance, this plot seems to indicate that *global_o* wasn't an accurate predictor of how many goals a given team would score in the group stages, given that 19 out of the 32 teams exhibit a point that falls outside of the standard error zone.
+
+One interesting takeaway from the graph is that American teams exhibited a slightly inflated *global offensive* ranking with three teams (Canada,Mexico, and USA) underperforming and only scoring two goals whereas only one team (Costa Rica) outperformed the model and scored three goals.
+
+This can be contrasted by the slight deflation of Asian and African team rankings as four Asian teams (Japan, Iran, Saudi Arabia, and South Korea) and four African teams (Cameroon, Ghana, Morocco, and Senegal) outperformed the prediction model whereas only one Asian team (Qatar) and one African team (Tunisia) underperformed.
+
+For those who are curious the teams who scored 9 goals each, far out-performing the model were England and Spain.
+
+```{r simulated goals}
+df2 <- data.frame(goals_scored=results$goals_scored,
+                  predicted_goals=forecasts$goals_scored,
+                  Continent=results$continent,
+                  team=results$team)
+
+ggplot(df2,aes(predicted_goals,
+               goals_scored
+               ,colour=Continent)) + 
+  geom_point() + 
+  geom_smooth(method='lm',colour="black") + 
+  labs(y="Goals Scored",x="Simulated Goals Scored") +
+  theme_calc()
+```
+
+At a glance, this plot seems to indicate that *goals_scored* from the forecasts dataset, also, wasn't an accurate predictor of how many goals a given team would score in the group stages, given that 19 out of the 32 teams exhibit a point that falls outside of the standard error zone.
+
+An interesting take-away from this graph is that 9 of the teams ended up scoring more goals then the prediction model and 10 ended up scoring less indicating that 538 may have slightly underestimated the amount of goals that were going to be scored at the 2022 World Cup.
+
+### Defensive Power
+
+To assess how accurate 538's *global defensive* and simulated *goals_against* ratings are we can repeat the process but with those variable under examination.
+
+```{r global defensive rating}
+df3 <- data.frame(goals_against=results$goals_against,                             global_d=forecasts$global_d,
+                 Continent = forecasts$continent,
+                 team=results$team)
+```
+
+```{r Global Def Histogram}
+ggplot(data = df3, aes(x = team, 
+                       y = global_d,
+                       fill=team)) +
+  geom_col() +
+  labs(y="Global Defensive Ranking",x="Teams") +
+  scale_x_discrete(breaks = forecasts$team[c(1,seq(from=0,to=32,by=8))])
+```
+```{r Goals Conceded Hist}
+ggplot(data = df3, aes(x = team, 
+                       y = goals_against,
+                       fill=team)) +
+  geom_col() +
+  labs(y="Goals Conceded",x="Teams") +
+  scale_x_discrete(breaks = forecasts$team[c(1,seq(from=0,to=32,by=8))])
+```
+```{r Global Defensive Comp}
+ggplot(df3,aes(global_d,goals_against,color=Continent)) + 
+  geom_point() + 
+  geom_smooth(method='lm',color="black") + 
+  ylab("Goals Conceded") + 
+  xlab("Global Defensive Ranking") +
+  theme_calc()
+```
+
+
+At a glance this plot seems to indicate that 538's *global defensive* ranking was a slightly more accurate predictor of goals conceded than their *global offensive* ranking was of goals scored as 17 team exhibited a point outside of the standard error zone, and there's a noticeable closer grouping of teams to the prediction model.
+
+For those curious the team which conceded the most (11) goals was Costa Rica.
+
+```{r simulated goals conceded}
+df4 <- data.frame(goals_against=results$goals_against,
+                  predicted_goals_against=forecasts$goals_against,
+                  Continent=results$continent,
+                  team=results$team)
+
+ggplot(df4,aes(predicted_goals_against,
+               goals_against,
+               colour=Continent)) + 
+  geom_point() + 
+  geom_smooth(method='lm',colour="black") + 
+  labs(y="Goals Conceded",x="Simulated Goals Conceded") +
+  theme_calc()
+```
+
+*global_d* seems to be a more accurte predictor for goals conceded rather than simulated *goals_against* as this graph exhibits 20 points that fall outside the standard error zone.
+
+### Group Competitivness
+
+Now there's one issue, or variable, that these plots don't take into account and that's how competitive or difficult each group is. The attempt I'm going to make is to take the average of *SPI* (Soccer Power Index) for a group and then compare that to the success of a group in the out-rounds (ie. which groups' teams reached furthest in the knock-out stages)
+
+Firstly to calculate the forecasted group strength we'll simply take the average of each team's *spi* in a group. For example Group A is made up of Senegal, Qatar, Netherlands, and Ecuador. These teams exhibit Soccer Power Indexes of 73.84, 51, 86, and 72.74 respectively. That means the average *spi* for Group A would be ~70.9
+
+```{r Groups}
+#Firstly I'm going to create subsets for all 
+#the groups for ease of coding
+
+GroupA <- subset(forecasts,forecasts$group=='A')
+GroupB <- subset(forecasts,forecasts$group=='B')
+GroupC <- subset(forecasts,forecasts$group=='C')
+GroupD <- subset(forecasts,forecasts$group=='D')
+GroupE <- subset(forecasts,forecasts$group=='E')
+GroupF <- subset(forecasts,forecasts$group=='F')
+GroupG <- subset(forecasts,forecasts$group=='G')
+GroupH <- subset(forecasts,forecasts$group=='H')
+```
+
+```{r Average SPI}
+#We're going to create a separate dataset
+#for Groups and their respective average SPIs
+SPIa <- mean(GroupA$spi)
+SPIb <- mean(GroupB$spi)
+SPIc <- mean(GroupC$spi)
+SPId <- mean(GroupD$spi)
+SPIe <- mean(GroupE$spi)
+SPIf <- mean(GroupF$spi)
+SPIg <- mean(GroupG$spi)
+SPIh <- mean(GroupH$spi)
+
+GroupSPIs <- c(SPIa,SPIb,SPIc,SPId,
+               SPIe,SPIf,SPIg,SPIh)
+
+letters <- c('A','B','C','D','E','F','G','H')
+
+Groups <- data.frame(Group=letters,
+             SPI=GroupSPIs)
+
+#Then we can check which group, by our metric, exhibits the highest average SPI
+
+MaxSPIIndex <- which(Groups$SPI == max(Groups$SPI))
+
+Groups$Group[MaxSPIIndex] 
+```
+We can now see that Group G (Brazil, Cameroon, Serbia, and Switzerland) exhibits the highest average *spi*.
+
+We'll then incorporate the average group *spi* back into our forecasts and results along with a new variable, *group_adv*. This variable will measure the difference between a team's *spi* and the average *spi* of the three other teams in that team's group. This will serve as a rough approximation as to how difficult or easy a group is for a given team. A positive *group_adv* indicates that a given team's *spi* is greater than the average *spi* of the other three teams in its group.
+
+```{r incorporating AvgSPI into main datasets}
+
+forecasts$AvgGroupSPI <- NA
+
+for (i in which(forecasts$group == 'A')){
+  forecasts$AvgGroupSPI[i] <- SPIa
+}
+
+for (i in which(forecasts$group == 'B')){
+  forecasts$AvgGroupSPI[i] <- SPIb
+}
+
+for (i in which(forecasts$group == 'C')){
+  forecasts$AvgGroupSPI[i] <- SPIc
+}
+
+for (i in which(forecasts$group == 'D')){
+  forecasts$AvgGroupSPI[i] <- SPId
+}
+
+for (i in which(forecasts$group == 'E')){
+  forecasts$AvgGroupSPI[i] <- SPIe
+}
+
+for (i in which(forecasts$group == 'F')){
+  forecasts$AvgGroupSPI[i] <- SPIf
+}
+
+for (i in which(forecasts$group == 'G')){
+  forecasts$AvgGroupSPI[i] <- SPIg
+}
+
+for (i in which(forecasts$group == 'H')){
+  forecasts$AvgGroupSPI[i] <- SPIh
+}
+```
+
+```{r creating GroupAvg}
+GroupA$GroupAdv <- NA
+GroupB$GroupAdv <- NA
+GroupC$GroupAdv <- NA
+GroupD$GroupAdv <- NA
+GroupE$GroupAdv <- NA
+GroupF$GroupAdv <- NA
+GroupG$GroupAdv <- NA
+GroupH$GroupAdv <- NA
+
+GroupA[2,1]
+
+for (i in 1:4){
+  GroupA[i,]$GroupAdv <-
+    GroupA[i,]$spi -
+    mean(subset(GroupA,team!=GroupA[i,1])$spi)
+  GroupB[i,]$GroupAdv <-
+    GroupB[i,]$spi -
+    mean(subset(GroupB,team!=GroupB[i,1])$spi)
+  GroupC[i,]$GroupAdv <-
+    GroupC[i,]$spi -
+    mean(subset(GroupC,team!=GroupC[i,1])$spi)
+  GroupD[i,]$GroupAdv <-
+    GroupD[i,]$spi -
+    mean(subset(GroupD,team!=GroupD[i,1])$spi)
+  GroupE[i,]$GroupAdv <-
+    GroupE[i,]$spi -
+    mean(subset(GroupE,team!=GroupE[i,1])$spi)
+  GroupF[i,]$GroupAdv <-
+    GroupF[i,]$spi -
+    mean(subset(GroupF,team!=GroupF[i,1])$spi)
+  GroupG[i,]$GroupAdv <-
+    GroupG[i,]$spi -
+    mean(subset(GroupG,team!=GroupG[i,1])$spi)
+  GroupH[i,]$GroupAdv <-
+    GroupH[i,]$spi -
+    mean(subset(GroupH,team!=GroupH[i,1])$spi)
+}
+
+GroupAdvs <- c(GroupA$GroupAdv,GroupB$GroupAdv,
+               GroupC$GroupAdv,GroupD$GroupAdv,
+               GroupE$GroupAdv,GroupF$GroupAdv,
+               GroupG$GroupAdv,GroupH$GroupAdv)
+
+forecasts$GroupAdv <- NA
+forecasts <- forecasts[order(forecasts$group),]
+forecasts$GroupAdv <- GroupAdvs
+forecasts <- forecasts[order(forecasts$team),]
+```
+
+Now that we have our new variable added to our dataset we can graph it and see the approximate distribution of *GroupAdv*
+
+```{r plotting GroupAdv}
+ggplot(data = forecasts, aes(x = team, 
+                       y = GroupAdv,
+                       fill=team)) +
+  geom_col() +
+  labs(y="Advantage in Group",x="Teams") +
+  scale_x_discrete(breaks = forecasts$team[c(1,seq(from=0,to=32,by=4))])
+```
